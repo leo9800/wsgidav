@@ -5,3 +5,4 @@ python-pam~=2.0
 PyYAML~=6.0
 passlib~=1.7
 bcrypt~=4.3
+redis~=7.1
