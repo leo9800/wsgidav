@@ -122,16 +122,7 @@ def make_domain_controller(wsgidav_app, config):
 class HTTPAuthenticator(BaseMiddleware):
     """WSGI Middleware for basic and digest authentication."""
 
-    error_message_401 = dedent(
-        """\
-        <html>
-            <head><title>401 Access not authorized</title></head>
-            <body>
-                <h1>401 Access not authorized</h1>
-            </body>
-        </html>
-    """
-    )
+    error_message_401 = "401 Unauthorized"
 
     def __init__(self, wsgidav_app, next_app, config):
         super().__init__(wsgidav_app, next_app, config)
@@ -273,7 +264,7 @@ class HTTPAuthenticator(BaseMiddleware):
             "401 Not Authorized",
             [
                 ("WWW-Authenticate", wwwauthheaders),
-                ("Content-Type", "text/html; charset=utf-8"),
+                ("Content-Type", "text/plain; charset=utf-8"),
                 ("Content-Length", str(len(body))),
                 ("Date", util.get_rfc1123_time()),
             ],
@@ -326,7 +317,7 @@ class HTTPAuthenticator(BaseMiddleware):
             "401 Not Authorized",
             [
                 ("WWW-Authenticate", wwwauthheaders),
-                ("Content-Type", "text/html; charset=utf-8"),
+                ("Content-Type", "text/plain; charset=utf-8"),
                 ("Content-Length", str(len(body))),
                 ("Date", util.get_rfc1123_time()),
             ],
