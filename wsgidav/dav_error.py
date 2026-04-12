@@ -255,31 +255,8 @@ class DAVError(Exception):
                 to_bytes(self.err_condition.as_string()),
             )
 
-        # Else return as HTML
-        status = get_http_status_string(self)
-        html = []
-        html.append(
-            "<!DOCTYPE HTML PUBLIC '-//W3C//DTD HTML 4.01//EN' "
-            "'http://www.w3.org/TR/html4/strict.dtd'>"
-        )
-        html.append("<html><head>")
-        html.append(
-            "  <meta http-equiv='Content-Type' content='text/html; charset=utf-8'>"
-        )
-        html.append(f"  <title>{status}</title>")
-        html.append("</head><body>")
-        html.append(f"  <h1>{status}</h1>")
-        html.append(f"  <p>{html_escape(self.get_user_info())}</p>")
-        html.append("<hr/>")
-        html.append(
-            "<a href='https://github.com/mar10/wsgidav/'>{}</a> - {}".format(
-                public_wsgidav_info,
-                html_escape(str(datetime.datetime.now()), "utf-8"),
-            )
-        )
-        html.append("</body></html>")
-        html = "\n".join(html)
-        return ("text/html; charset=utf-8", to_bytes(html))
+        # Else return plaintext
+        return ("text/plain; charset=utf-8", to_bytes(self.get_user_info()))
 
 
 def get_http_status_code(v):

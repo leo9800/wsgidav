@@ -73,18 +73,7 @@ _logger = util.get_module_logger(__name__)
 
 _version = 1.0
 
-SERVER_ERROR = """\
-<html>
-  <head>
-     <title>Server Error</title>
-  </head>
-  <body>
-     <h1>Server Error</h1>
-     A server error has occurred.  Please contact the system administrator for
-     more information.
-  </body>
-</html>
-"""
+SERVER_ERROR = "500 Internal Server Error\nA server error has occurred. Please contact the system administrator for more information"
 
 
 class ExtHandler(BaseHTTPServer.BaseHTTPRequestHandler):
@@ -218,7 +207,7 @@ class ExtHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             logging.error(errorMsg.getvalue())
             if not self.wsgiSentHeaders:
                 self.wsgiStartResponse(
-                    "500 Server Error", [("Content-type", "text/html")]
+                    "500 Internal Server Error", [("Content-type", "text/plain; charset=utf-8")]
                 )
             self.wsgiWriteData(SERVER_ERROR)
 
