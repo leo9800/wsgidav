@@ -181,6 +181,7 @@ http_authenticator:
     # domain_controller: wsgidav.dc.nt_dc.NTDomainController
     # domain_controller: wsgidav.dc.htpasswd_dc.HtpasswdDomainController
     # domain_controller: wsgidav.dc.htdigest_dc.HtdigestDomainController
+    # domain_controller: wsgidav.dc.null_dc.NullDomainController
 
 
 # Additional options for SimpleDomainController only:
