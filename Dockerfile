@@ -27,16 +27,21 @@ FROM python:3-alpine AS app-builder
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ADD . /wsgidav
+RUN apk update --no-cache && \
+    apk upgrade --no-cache && \
+    apk add --no-cache --no-progress krb5-dev musl-dev gcc
 RUN mkdir /wheels
 RUN pip wheel \
     --no-cache-dir \
-    --no-deps \
     --wheel-dir /wheels \
     --prefer-binary \
-    /wsgidav gunicorn lxml
+    /wsgidav[kerberos] gunicorn lxml
 
 FROM python:3-alpine
 COPY --from=wrapper-builder /root/suid-wrapper /usr/local/bin/
+RUN apk update --no-cache && \
+    apk upgrade --no-cache && \
+    apk add --no-cache --no-progress krb5
 RUN --mount=type=bind,source=/wheels,target=/wheels,from=app-builder \
-    pip install --no-cache --prefer-binary /wheels/*
+    pip install --no-cache --no-index /wheels/*
 CMD ["wsgidav"]
