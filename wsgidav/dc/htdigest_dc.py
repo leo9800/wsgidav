@@ -35,5 +35,8 @@ class HtdigestDomainController(BaseDomainController):
     def supports_http_digest_auth(self):
         return True
 
+    def supports_http_negotiate_auth(self):
+        return False
+
     def digest_auth_user(self, realm, user_name, environ):
         return self.htdigest.get_hash(user_name, realm)

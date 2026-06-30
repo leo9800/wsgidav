@@ -17,5 +17,8 @@ class NullDomainController(BaseDomainController):
 	def supports_http_digest_auth(self):
 		return False
 
+	def supports_http_negotiate_auth(self):
+		return False
+
 	def basic_auth_user(self, realm, user_name, password, environ):
 		return False

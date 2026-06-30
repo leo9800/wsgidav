@@ -175,6 +175,17 @@ class BaseDomainController(ABC):
         """
         raise NotImplementedError
 
+    def supports_http_negotiate_auth(self):
+        """Signal if this DC instance supports the HTTP negotiate authentication (SPNEGO) theme.
+
+        If true, `HTTPAuthenticator` will call `dc.negotiate_auth_user()`,
+        so this method must be implemented as well.
+
+        Returns:
+            bool
+        """
+        raise NotImplementedError
+
     # def is_realm_user(self, realm, user_name, environ):
     #     """Return true if the user is known and allowed for that realm.
 
@@ -232,5 +243,29 @@ class BaseDomainController(ABC):
         Returns:
             str: MD5("{usern_name}:{realm}:{password}")
             or false if user is unknown or rejected
+        """
+        raise NotImplementedError
+
+    def negotiate_auth_user(self, realm, client_token, environ):
+        """Check access permissions for realm/GSSAPI client token.
+
+        Called by http_authenticator for negotiate authentication (SPNEGO) requests.
+
+        Any domain controller that returns true for `supports_http_negotiate_auth()`
+        MUST implement this method.
+
+        Optionally set environment variables:
+
+            environ["wsgidav.auth.roles"] = (<role>, ...)
+            environ["wsgidav.auth.permissions"] = (<perm>, ...)
+
+        Args:
+            realm (str):
+            client_token (bytes):
+            environ (dict):
+
+        Returns:
+            ret: true if auth succeeded, false if auth failed
+            username: str if auth succeeded, None if auth failed
         """
         raise NotImplementedError

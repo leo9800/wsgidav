@@ -98,3 +98,6 @@ class PAMDomainController(BaseDomainController):
     def supports_http_digest_auth(self):
         # We don't have access to a plaintext password (or stored hash)
         return False
+
+    def supports_http_negotiate_auth(self):
+        return False

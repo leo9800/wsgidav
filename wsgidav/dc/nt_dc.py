@@ -115,6 +115,9 @@ class NTDomainController(BaseDomainController):
         # We don't have access to a plaintext password (or stored hash)
         return False
 
+    def supports_http_negotiate_auth(self):
+        return False
+
     # def is_realm_user(self, realm, user_name, environ):
     #     (domain, usern) = self._get_domain_username(user_name)
     #     dc_name = self._get_domain_controller_name(domain)

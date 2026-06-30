@@ -7,6 +7,7 @@ import gssapi
 import gssapi.raw
 import gssapi.raw.misc
 import time
+from typing import Optional, Tuple
 
 from wsgidav import util
 from wsgidav.dc.base_dc import BaseDomainController
@@ -137,6 +138,9 @@ class KerberosDomainController(BaseDomainController):
 	def supports_http_digest_auth(self):
 		return False  # Kerberos auth requires password in plaintext
 
+	def supports_http_negotiate_auth(self):
+		return True
+
 	def basic_auth_user(self, realm, user_name, password, environ):
 		if isinstance(self.upn_allowlist, list) and not user_name in self.upn_allowlist: return False
 		if isinstance(self.cache, KerberosAuthCacheBase) and self.cache.check(user_name, password) is True: return True
@@ -146,7 +150,7 @@ class KerberosDomainController(BaseDomainController):
 			# assuming encoding=UTF-8 is not viable as 
 			# Kerberos RFC does not mandates any encoding for password
 			c = self.__client_ctx(user_name, bytes(password, encoding='ascii'))
-			r = self.__negotiate(s, c)
+			r = self.__basic(s, c)
 		except gssapi.raw.misc.GSSError as e:  # kerberos auth failed
 			return False
 		except UnicodeEncodeError as e:  # invalid (non-ascii) password
@@ -155,6 +159,20 @@ class KerberosDomainController(BaseDomainController):
 			raise e
 		if isinstance(self.cache, KerberosAuthCacheBase) and r is True: self.cache.save(user_name, password)
 		return r
+
+	def negotiate_auth_user(self, realm, client_token, environ):
+		s = self.__server_ctx()
+		try:
+			r, username = self.__negotiate(s, client_token)
+		except gssapi.raw.misc.GSSError as e:  # kerberos auth failed
+			return False
+		except UnicodeEncodeError as e:  # invalid (non-ascii) password
+			return False
+		except Exception as e:
+			raise e
+		if r is False: return False, None
+		if isinstance(self.upn_allowlist, list) and not username in self.upn_allowlist: return False, username
+		return True, username
 
 	def __server_ctx(self) -> gssapi.SecurityContext:
 		server_name = gssapi.Name(f'{self.spn}@{self.realm}')
@@ -167,7 +185,7 @@ class KerberosDomainController(BaseDomainController):
 		client_creds = gssapi.raw.acquire_cred_with_password(client_name, password).creds
 		return gssapi.SecurityContext(usage='initiate', name=server_name, creds=client_creds)
 
-	def __negotiate(self, server_ctx: gssapi.SecurityContext, client_ctx: gssapi.SecurityContext) -> bool:
+	def __basic(self, server_ctx: gssapi.SecurityContext, client_ctx: gssapi.SecurityContext) -> bool:
 		client_token = None
 		server_token = None
 		while True:
@@ -178,3 +196,11 @@ class KerberosDomainController(BaseDomainController):
 			if client_ctx.complete and server_ctx.complete: return True
 			if not server_token: break
 		return False
+
+	def __negotiate(self, server_ctx: gssapi.SecurityContext, client_token: bytes) -> Tuple[bool, Optional[str]]:
+		while True:
+			if not client_token: break
+			if server_ctx.complete: return True, str(server_ctx.initiator_name).split('@')[0]
+			server_ctx.step(client_token)
+			if server_ctx.complete: return True, str(server_ctx.initiator_name).split('@')[0]
+		return False, None

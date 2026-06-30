@@ -29,5 +29,8 @@ class HtpasswdDomainController(BaseDomainController):
     def supports_http_digest_auth(self):
         return False
 
+    def supports_http_negotiate_auth(self):
+        return False
+
     def basic_auth_user(self, realm, user_name, password, environ):
         return self.htpasswd.check_password(user_name, password)

@@ -485,8 +485,6 @@ class WsgiDAVApp:
             # Postprocess response headers
             headerDict = {}
             for header, value in response_headers:
-                if header.lower() in headerDict:
-                    _logger.error(f"Duplicate header in response: {header}")
                 headerDict[header.lower()] = value
 
             # Check if we should close the connection after this request.

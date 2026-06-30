@@ -10,7 +10,7 @@ Usage::
    from http_authenticator import HTTPAuthenticator
 
    WSGIApp = HTTPAuthenticator(ProtectedWSGIApp, domain_controller, accept_basic,
-                               accept_digest, default_to_digest)
+                               accept_digest, accept_negotiate)
 
    where:
      ProtectedWSGIApp is the application requiring authenticated access
@@ -24,10 +24,8 @@ Usage::
      accept_digest is a boolean indicating whether to accept requests using
      the digest authentication scheme (default = True)
 
-     default_to_digest is a boolean. if True, an unauthenticated request will
-     be sent a digest authentication required response, else the unauthenticated
-     request will be sent a basic authentication required response
-     (default = True)
+     accept_negotiate is a boolean indicating whether to accept requests using
+     the negotiate authentication scheme (default = True)
 
 The HTTPAuthenticator will put the following authenticated information in the
 environ dictionary::
@@ -131,6 +129,7 @@ class HTTPAuthenticator(BaseMiddleware):
 
         dc = make_domain_controller(wsgidav_app, config)
         self.domain_controller = dc
+        self.allowed_auth_methods = []
 
         hotfixes = util.get_dict_value(config, "hotfixes", as_dict=True)
         # HOT FIX for Windows XP (Microsoft-WebDAV-MiniRedir/5.1.2600):
@@ -150,26 +149,20 @@ class HTTPAuthenticator(BaseMiddleware):
 
         auth_conf = util.get_dict_value(config, "http_authenticator", as_dict=True)
 
-        self.accept_basic = auth_conf.get("accept_basic", True)
-        self.accept_digest = auth_conf.get("accept_digest", True)
-        self.default_to_digest = auth_conf.get("default_to_digest", True)
         self.trusted_auth_header = auth_conf.get("trusted_auth_header", None)
-
-        if not dc.supports_http_digest_auth() and (
-            self.accept_digest or self.default_to_digest or not self.accept_basic
-        ):
-            raise RuntimeError(
-                f"{dc.__class__.__name__} does not support digest authentication.\n"
-                "Set accept_basic=True, accept_digest=False, default_to_digest=False"
-            )
-
         self._nonce_dict = dict([])
-
         self._header_parser = re.compile(r"([\w]+)=([^,]*),")
         # Note: extra parser to handle digest auth requests from certain
         # clients, that leave commas un-encoded to interfere with the above.
         self._header_fix_parser = re.compile(r'([\w]+)=("[^"]*,[^"]*"),')
         self._header_method = re.compile(r"^([\w]+)")
+
+        if auth_conf.get('accept_negotiate', True) and dc.supports_http_negotiate_auth():
+            self.allowed_auth_methods.append('negotiate')
+        if auth_conf.get("accept_digest", True) and dc.supports_http_digest_auth():
+            self.allowed_auth_methods.append('digest')
+        if auth_conf.get("accept_basic", True):
+            self.allowed_auth_methods.append('basic')
 
     def get_domain_controller(self):
         return self.domain_controller
@@ -227,48 +220,44 @@ class HTTPAuthenticator(BaseMiddleware):
             if auth_match:
                 auth_method = auth_match.group(1).lower()
 
-            if auth_method == "digest" and self.accept_digest:
+            if auth_method not in self.allowed_auth_methods:
+                return self.send_auth_response(environ, start_response)
+
+            if auth_method == 'negotiate':
+                return self.handle_negotiate_auth_request(environ, start_response)
+            if auth_method == 'digest':
                 return self.handle_digest_auth_request(environ, start_response)
-            elif auth_method == "digest" and self.accept_basic:
-                return self.send_basic_auth_response(environ, start_response)
-            elif auth_method == "basic" and self.accept_basic:
+            if auth_method == 'basic':
                 return self.handle_basic_auth_request(environ, start_response)
 
-            # The requested auth method is not supported.
-            elif self.default_to_digest and self.accept_digest:
-                return self.send_digest_auth_response(environ, start_response)
-            elif self.accept_basic:
-                return self.send_basic_auth_response(environ, start_response)
+        return self.send_auth_response(environ, start_response)
 
-            _logger.warning(
-                f"HTTPAuthenticator: respond with 400 Bad request; Auth-Method: {auth_method}"
-            )
-
-            start_response(
-                "400 Bad Request",
-                [("Content-Length", "0"), ("Date", util.get_rfc1123_time())],
-            )
-            return [""]
-
-        if self.default_to_digest:
-            return self.send_digest_auth_response(environ, start_response)
-        return self.send_basic_auth_response(environ, start_response)
-
-    def send_basic_auth_response(self, environ, start_response):
+    def send_auth_response(self, environ, start_response):
         realm = self.domain_controller.get_domain_realm(environ["PATH_INFO"], environ)
-        _logger.debug(f"401 Not Authorized for realm {realm!r} (basic)")
-        wwwauthheaders = f'Basic realm="{realm}"'
-
         body = util.to_bytes(self.error_message_401)
-        start_response(
-            "401 Not Authorized",
-            [
-                ("WWW-Authenticate", wwwauthheaders),
-                ("Content-Type", "text/plain; charset=utf-8"),
-                ("Content-Length", str(len(body))),
-                ("Date", util.get_rfc1123_time()),
-            ],
-        )
+        status = "401 Unauthorized"
+        headers = [
+            ("Content-Type", "text/plain; charset=utf-8"),
+            ("Content-Length", str(len(body))),
+            ("Date", util.get_rfc1123_time()),
+        ]
+
+        if 'negotiate' in self.allowed_auth_methods:
+            headers.append(("WWW-Authenticate", "Negotiate"))
+
+        if 'digest' in self.allowed_auth_methods:
+            random.seed()
+            serverkey = hex(random.getrandbits(32))[2:]
+            etagkey = calc_hexdigest(environ["PATH_INFO"])
+            timekey = str(time.time())
+            nonce_source = timekey + calc_hexdigest(f'{timekey}:{etagkey}:{serverkey}')
+            nonce = calc_base64(nonce_source)
+            headers.append(("WWW-Authenticate", f'Digest realm="{realm}", nonce="{nonce}", algorithm=MD5, qop="auth"'))
+
+        if 'basic' in self.allowed_auth_methods:
+            headers.append(("WWW-Authenticate", f'Basic realm="{realm}"'))
+
+        start_response(status, headers)
         return [body]
 
     def handle_basic_auth_request(self, environ, start_response):
@@ -292,37 +281,30 @@ class HTTPAuthenticator(BaseMiddleware):
         _logger.warning(
             f"Authentication (basic) failed for user {user_name!r}, realm {realm!r}."
         )
-        return self.send_basic_auth_response(environ, start_response)
+        return self.send_auth_response(environ, start_response)
 
-    def send_digest_auth_response(self, environ, start_response):
+    def handle_negotiate_auth_request(self, environ, start_response):
         realm = self.domain_controller.get_domain_realm(environ["PATH_INFO"], environ)
-        random.seed()
-        serverkey = hex(random.getrandbits(32))[2:]
-        etagkey = calc_hexdigest(environ["PATH_INFO"])
-        timekey = str(time.time())
-        nonce_source = timekey + calc_hexdigest(
-            timekey + ":" + etagkey + ":" + serverkey
-        )
-        nonce = calc_base64(nonce_source)
-        wwwauthheaders = (
-            f'Digest realm="{realm}", nonce="{nonce}", algorithm=MD5, qop="auth"'
-        )
+        auth_header = environ["HTTP_AUTHORIZATION"]
+        auth_value = ""
+        try:
+            auth_value = auth_header[len("Negotiate ") :].strip()
+        except Exception:
+            auth_value = ""
 
-        _logger.debug(
-            f"401 Not Authorized for realm {realm!r} (digest): {wwwauthheaders}"
-        )
+        auth_value = base64.decodebytes(util.to_bytes(auth_value))
 
-        body = util.to_bytes(self.error_message_401)
-        start_response(
-            "401 Not Authorized",
-            [
-                ("WWW-Authenticate", wwwauthheaders),
-                ("Content-Type", "text/plain; charset=utf-8"),
-                ("Content-Length", str(len(body))),
-                ("Date", util.get_rfc1123_time()),
-            ],
+        ret, username = self.domain_controller.negotiate_auth_user(realm, auth_value, environ)
+
+        if ret is True:
+            environ["wsgidav.auth.realm"] = realm
+            environ["wsgidav.auth.user_name"] = username
+            return self.next_app(environ, start_response)
+
+        _logger.warning(
+            f"Authentication (negotiate) failed for realm {realm!r}."
         )
-        return [body]
+        return self.send_auth_response(environ, start_response)
 
     def handle_digest_auth_request(self, environ, start_response):
         realm = self.domain_controller.get_domain_realm(environ["PATH_INFO"], environ)
@@ -524,7 +506,7 @@ class HTTPAuthenticator(BaseMiddleware):
                 _logger.warning(
                     f"Authentication (digest) failed for user {req_username!r}, realm {realm!r}."
                 )
-            return self.send_digest_auth_response(environ, start_response)
+            return self.send_auth_response(environ, start_response)
 
         environ["wsgidav.auth.realm"] = realm
         environ["wsgidav.auth.user_name"] = req_username
